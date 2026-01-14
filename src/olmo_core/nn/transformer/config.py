@@ -984,7 +984,7 @@ class TransformerConfig(ModelConfig):
     def ngpt_1B(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         """
         A 1B nGPT model config.
-        """
+        """ 
         return cls.ngpt_like(
             d_model=2048,
             vocab_size=vocab_size,
@@ -1000,6 +1000,20 @@ class TransformerConfig(ModelConfig):
         """
         return cls.llama_like(
             d_model=1024,
+            vocab_size=vocab_size,
+            n_layers=kwargs.pop("n_layers", 16),
+            n_heads=kwargs.pop("n_heads", 8),
+            rope_theta=kwargs.pop("rope_theta", 10_000),
+            **kwargs,
+        )
+
+    @classmethod
+    def llama2_2x271M(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
+        """
+        A 2x271M Llama2-like model config.
+        """
+        return cls.llama_like(
+            d_model=2048,
             vocab_size=vocab_size,
             n_layers=kwargs.pop("n_layers", 16),
             n_heads=kwargs.pop("n_heads", 8),

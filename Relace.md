@@ -48,3 +48,17 @@ torchrun --nproc-per-node=1 src/scripts/relace/saturate_271M_15B.py \
   --save-folder=/tmp/saturate_271M_15B \
   --work-dir=/tmp/dataset-cache \
   --trainer.hard_stop='{value: 15000, unit: steps}'
+
+this saturated at 30 steps(!) I let it train for 500, then I stopped it. Now doubling d_model and seeing how many params that would be.
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_2x271M_15B.py \
+  saturate_2x271M_15B \
+  --save-folder=/tmp/saturate_2x271M_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 500, unit: steps}'
+
+observations: 
+- had to reduce micro batch size to 4 sequences instead of 8, params are:
+- 1,028,196,352 total params                                                                                                                                                                               
+- 925,173,760 non-embedding params                                                                                                                                                                         
+- 1,028,196,352 trainable params
