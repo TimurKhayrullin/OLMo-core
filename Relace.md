@@ -35,3 +35,16 @@ torchrun --nproc-per-node=1 src/scripts/relace/train_smallmoe.py smallmoe --trai
 
 Observations:
 - uses 20gb vram for a 400M param moe.
+- omlo's smallmoe arch uses 488,163,072 total params.
+
+day 2 idea:
+
+need to get a few dense LLMs to saturate their loss curves, and then find corresponding MoEs to train.
+
+the openai paper lists models with as little as <1M params, so this 271M llama2 should be good. 
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_271M_15B.py \
+  saturate_271M_15B \
+  --save-folder=/tmp/saturate_271M_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 15000, unit: steps}'
