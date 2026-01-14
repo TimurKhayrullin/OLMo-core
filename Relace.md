@@ -62,3 +62,11 @@ observations:
 - 1,028,196,352 total params                                                                                                                                                                               
 - 925,173,760 non-embedding params                                                                                                                                                                         
 - 1,028,196,352 trainable params
+
+run for llama2_135M:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_135M_15B.py \
+  saturate_135M_15B.py \
+  --save-folder=/tmp/saturate_135M_15B.py \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 1000, unit: steps}'
