@@ -111,6 +111,17 @@ class WandBCallback(Callback):
             self.wandb
             wandb_dir = self.trainer.work_dir / "wandb"
             wandb_dir.mkdir(parents=True, exist_ok=True)
+
+            # Build config with model parameter information
+            wandb_config = dict(self.config) if self.config else {}
+            model = self.trainer.train_module.model
+            if hasattr(model, "num_params"):
+                wandb_config["num_params"] = model.num_params
+            if hasattr(model, "num_non_embedding_params"):
+                wandb_config["num_non_embedding_params"] = model.num_non_embedding_params
+            if hasattr(model, "num_trainable_params"):
+                wandb_config["num_trainable_params"] = model.num_trainable_params
+
             self.wandb.init(
                 dir=wandb_dir,
                 project=self.project,
@@ -119,7 +130,7 @@ class WandBCallback(Callback):
                 name=self.name,
                 tags=self.tags,
                 notes=self.notes,
-                config=self.config,
+                config=wandb_config,
             )
             self._run_path = self.run.path  # type: ignore
 
