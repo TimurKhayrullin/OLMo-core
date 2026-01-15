@@ -88,3 +88,44 @@ torchrun --nproc-per-node=1 src/scripts/relace/saturate_moe1Bolmo_15B.py \
   --work-dir=/tmp/dataset-cache \
   --trainer.hard_stop='{value: 2000, unit: steps}'
 
+run for llama2_60M:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_60M_15B.py \
+  saturate_60M_15B \
+  --save-folder=/tmp/saturate_60M_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 3000, unit: steps}'
+
+
+run for llama2_30M:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_30M_15B.py \
+  saturate_30M_15B \
+  --save-folder=/tmp/saturate_30M_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 3000, unit: steps}'
+
+run for llama2_1M:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_1M_15B.py \
+  saturate_1M_15B \
+  --save-folder=/tmp/saturate_1M_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 3000, unit: steps}'
+
+run for llama2_100K:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_100K_15B.py \
+  saturate_100K_15B \
+  --save-folder=/tmp/saturate_100K_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 3000, unit: steps}'
+
+run for llama2_10K:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_10K_15B.py \
+  saturate_10K_15B \
+  --save-folder=/tmp/saturate_10K_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 3000, unit: steps}'
+
