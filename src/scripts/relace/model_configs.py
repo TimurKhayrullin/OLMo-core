@@ -418,3 +418,135 @@ def smallmoe_1B(vocab_size: int, **kwargs) -> TransformerConfig:
         ),
         **kwargs,
     )
+
+# ==============================================================================
+# Tiny Dense Models for Scaling Law Experiments
+# ==============================================================================
+#
+# NON-EMBEDDING PARAMETER CALCULATION:
+# For a LLaMA-like dense transformer, non-embedding params per layer:
+#   - Attention (Q,K,V,O): 4 * d_model^2
+#   - FFN (SwiGLU with hidden = 8/3 * d_model): 3 * d_model * hidden_size
+#   - Layer norms: ~4 * d_model (negligible)
+#
+# Total per layer ≈ 4*d^2 + 3*d*h where h ≈ 8/3 * d ≈ 2.67d
+# So per layer ≈ 4*d^2 + 8*d^2 = 12*d^2 (rough approximation)
+#
+# ==============================================================================
+
+
+def dense_100K(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    A tiny ~100K non-embedding parameter dense LLaMA-like model.
+
+    Target: ~100K non-embedding parameters
+
+    Design rationale:
+    -----------------
+    We need: n_layers * (4*d^2 + 3*d*h) ≈ 100,000
+
+    With d_model=48, n_layers=4:
+      - Attention: 4 * 48^2 = 9,216 per layer
+      - FFN hidden ≈ 8/3 * 48 = 128 (rounded to multiple of 8)
+      - FFN: 3 * 48 * 128 = 18,432 per layer
+      - Per layer total: ~27,648
+      - 4 layers: ~110,592 ≈ 100K ✓
+
+    Architecture:
+    -------------
+    d_model=48:
+        - Small but functional embedding dimension
+        - 48 / 4 heads = 12 dims per head (minimal but works)
+
+    n_layers=4:
+        - Enough depth for some representation learning
+        - 4 layers * ~28K = ~110K non-embed params
+
+    n_heads=4:
+        - Gives 12 dimensions per head
+        - Minimum reasonable for attention patterns
+
+    Note: Embedding params (2 * vocab_size * d_model) are NOT included
+    in the 100K target. For vocab_size=50K, embeddings add ~4.8M params.
+    """
+    # d_model=48 chosen so 4 layers gives ~100K non-embed params
+    # 48 is divisible by 4 (n_heads) giving 12 dims per head
+    d_model = kwargs.pop("d_model", 48)
+    n_heads = kwargs.pop("n_heads", 4)  # 48/4 = 12 dims per head
+    n_layers = kwargs.pop("n_layers", 4)
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        # hidden_size_multiplier=1.0 uses default LLaMA FFN sizing (8/3 * d_model)
+        hidden_size_multiplier=kwargs.pop("hidden_size_multiplier", 1.0),
+        block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        **kwargs,
+    )
+
+
+def dense_10K(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    A very tiny ~10K non-embedding parameter dense LLaMA-like model.
+
+    Target: ~10K non-embedding parameters
+
+    Design rationale:
+    -----------------
+    We need: n_layers * (4*d^2 + 3*d*h) ≈ 10,000
+
+    With d_model=20, n_layers=2:
+      - Attention: 4 * 20^2 = 1,600 per layer
+      - FFN hidden ≈ 8/3 * 20 ≈ 56 (rounded to multiple of 8)
+      - FFN: 3 * 20 * 56 = 3,360 per layer
+      - Per layer total: ~4,960
+      - 2 layers: ~9,920 ≈ 10K ✓
+
+    Architecture:
+    -------------
+    d_model=20:
+        - Extremely small embedding dimension
+        - 20 / 2 heads = 10 dims per head (very minimal)
+        - This is at the edge of what's functional
+
+    n_layers=2:
+        - Minimum depth for any compositional computation
+        - 2 layers * ~5K = ~10K non-embed params
+
+    n_heads=2:
+        - Gives 10 dimensions per head
+        - Bare minimum for attention to be meaningful
+
+    Warning: This model is EXTREMELY small and may not learn well.
+    It's primarily useful for:
+      - Sanity checking training pipelines
+      - Extrapolating scaling laws to tiny compute
+      - Fast iteration on hyperparameter searches
+
+    Note: Embedding params (2 * vocab_size * d_model) are NOT included
+    in the 10K target. For vocab_size=50K, embeddings add ~2M params.
+    """
+    # d_model=20 chosen so 2 layers gives ~10K non-embed params
+    # 20 is divisible by 2 (n_heads) giving 10 dims per head
+    d_model = kwargs.pop("d_model", 20)
+    n_heads = kwargs.pop("n_heads", 2)  # 20/2 = 10 dims per head
+    n_layers = kwargs.pop("n_layers", 2)
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        # hidden_size_multiplier=1.0 uses default LLaMA FFN sizing (8/3 * d_model)
+        hidden_size_multiplier=kwargs.pop("hidden_size_multiplier", 1.0),
+        block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        **kwargs,
+    )
