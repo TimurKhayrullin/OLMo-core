@@ -69,76 +69,81 @@ def llama2_135M(vocab_size: int, **kwargs) -> TransformerConfig:
 # MoE Model Configurations
 # ==============================================================================
 #
-# IMPORTANT NOTE ON ACTIVE PARAMETER RATIOS:
-# ------------------------------------------
-# The original target of 3.4% active params is mathematically impossible because
-# certain components are ALWAYS active regardless of MoE routing:
-#   - Embeddings: vocab_size * d_model (e.g., 50k * 768 = 38.4M)
-#   - Attention: ~4 * d_model^2 * n_layers (e.g., 28M for d=768, L=12)
-#   - Shared MLP: 3 * d_model * shared_hidden * n_layers (always active)
-#   - Router: d_model * num_experts * n_layers (always active)
-#   - LM Head: d_model * vocab_size (e.g., 38.4M)
+# GRANULARITY DEFINITION:
+#   granularity = 2 * d_model / expert_hidden
+#   For granularity=12: expert_hidden = d_model / 6
 #
-# For a 300M model, 3.4% = 10.2M active params, but embeddings alone exceed this.
-# The configs below MINIMIZE the active ratio by using:
-#   - More experts (increases total without increasing active)
-#   - top_k=1 (minimum active experts per token)
-#   - Smaller expert hidden sizes relative to total
+# SHARED EXPERT:
+#   All models (except OLMo-style 1B) use shared_hidden = expert_hidden,
+#   meaning the shared expert is the SAME SIZE as each routed expert.
 #
-# Achievable active ratios are ~15-25% for sparse configs, ~39% for OLMo-style.
+# ACTIVE PARAMETER NOTES:
+# -----------------------
+# Always-active components (cannot be reduced via sparsity):
+#   - Embeddings: vocab_size * d_model
+#   - Attention: ~4 * d_model^2 * n_layers
+#   - Shared MLP: 3 * d_model * shared_hidden * n_layers
+#   - Router: d_model * num_experts * n_layers
+#   - LM Head: d_model * vocab_size
+#
+# The active ratio is bounded below by these components.
 # ==============================================================================
 
 
 def smallmoe_300M(vocab_size: int, **kwargs) -> TransformerConfig:
     """
-    A ~280M total param MoE model with minimized active parameters.
+    ~267M total params MoE with granularity=12 and uniform expert sizing.
 
-    Target: 250-300M total, minimize active ratio
-    Achieved: ~280M total, ~60M active (~21% ratio) for vocab_size=50k
+    Target: 250-300M total
+    Achieved: ~267M total, ~72M active (~27%) for vocab_size=50k
 
-    Architecture choices:
-    ---------------------
-    d_model=384:
-        - Smaller than OLMo's 768 to fit total param budget
-        - 384 / 6 heads = 64 dims per head (standard)
+    Granularity = 2 * 576 / 96 = 12 ✓
+    Shared expert size = routed expert size = 96 ✓
 
-    n_layers=12:
-        - Matches "granularity of 12" requirement
-        - Standard depth for this scale
+    Architecture:
+    -------------
+    d_model=576:
+        - Chosen so d_model/6 = 96 (clean division for granularity=12)
+        - 576 / 9 heads = 64 dims per head
 
-    num_experts=128, top_k=1:
-        - 128 experts (vs OLMo's 32) increases total params while keeping active low
-        - top_k=1 means only 1 expert active per token (minimum possible)
-        - Expert sparsity: 1/128 = 0.78% of expert params active
+    expert_hidden=96 (d_model/6):
+        - Gives granularity = 2 * 576 / 96 = 12
 
-    expert_hidden_size=256 (0.67 * d_model):
-        - Slightly larger ratio than OLMo's 0.5 to hit param target
-        - Expert params: 3 * 384 * 256 * 128 = 37.7M per layer
+    shared_hidden=96:
+        - Same size as routed experts (1 shared expert requirement)
 
-    shared_mlp_hidden=768 (2 * d_model):
-        - Matches OLMo ratio, provides always-active capacity
-        - Acts as the "1 shared expert" requirement
+    num_experts=96, top_k=1:
+        - 96 experts for param budget, top_k=1 for sparsity
 
     Parameter breakdown (vocab_size=50k):
     -------------------------------------
     Per layer MoE:
-      - Router: 384 * 128 = 49,152
-      - Experts: 3 * 384 * 256 * 128 = 37,748,736
-      - Shared: 3 * 384 * 768 = 884,736
-      - Total: 38,682,624
+      - Router: 576 * 96 = 55,296
+      - Experts: 3 * 576 * 96 * 96 = 15,925,248
+      - Shared: 3 * 576 * 96 = 165,888
+      - Total MoE: 16,146,432
 
-    Per layer attention: ~590k
-    12 layers: ~472M (MoE) + 7M (attn) = 479M...
+    Per layer attention: 4 * 576^2 = 1,327,104
+    Per layer total: ~17.5M
+    12 layers: ~210M
+    Embeddings + LM head: ~57.6M
+    Total: ~267M
 
-    Wait, let me recalculate with smaller expert_hidden...
+    Active params:
+      - Router + shared + 1 expert: ~2.6M per layer * 12 = ~31M
+      - Attention: ~16M
+      - Embeddings + LM: ~57.6M
+      - Total active: ~72M (~27%)
     """
-    d_model = kwargs.pop("d_model", 384)
-    n_heads = kwargs.pop("n_heads", 6)  # 384/6 = 64 dims per head
+    d_model = kwargs.pop("d_model", 576)
+    n_heads = kwargs.pop("n_heads", 9)  # 576/9 = 64 dims per head
     n_layers = kwargs.pop("n_layers", 12)
-    num_experts = kwargs.pop("num_experts", 64)  # More experts = lower active ratio
-    top_k = kwargs.pop("top_k", 1)  # Minimum active experts
-    expert_hidden = kwargs.pop("expert_hidden", int(0.5 * d_model))  # 192
-    shared_hidden = kwargs.pop("shared_hidden", d_model * 2)  # 768
+    num_experts = kwargs.pop("num_experts", 96)
+    top_k = kwargs.pop("top_k", 1)
+    # Granularity = 12 → expert_hidden = d_model / 6
+    expert_hidden = kwargs.pop("expert_hidden", d_model // 6)  # 96
+    # Shared expert same size as routed experts
+    shared_hidden = kwargs.pop("shared_hidden", expert_hidden)  # 96
 
     return TransformerConfig.llama_like(
         d_model=d_model,
@@ -155,7 +160,7 @@ def smallmoe_300M(vocab_size: int, **kwargs) -> TransformerConfig:
             num_experts=num_experts,
             hidden_size=expert_hidden,
             router=MoERouterConfig(top_k=top_k),
-            # shared_mlp acts as the "1 shared expert" - always active
+            # Shared expert = same size as routed experts
             shared_mlp=FeedForwardConfig(hidden_size=shared_hidden, bias=False),
             lb_loss_weight=0.01,
             z_loss_weight=0.001,
@@ -166,61 +171,58 @@ def smallmoe_300M(vocab_size: int, **kwargs) -> TransformerConfig:
 
 def smallmoe_150M(vocab_size: int, **kwargs) -> TransformerConfig:
     """
-    A ~130M total param MoE model with minimized active parameters.
+    ~132M total params MoE with granularity=12 and uniform expert sizing.
 
-    Target: 100-150M total, minimize active ratio
-    Achieved: ~130M total, ~35M active (~27% ratio) for vocab_size=50k
+    Target: 100-150M total
+    Achieved: ~132M total, ~50M active (~38%) for vocab_size=50k
 
-    Architecture choices:
-    ---------------------
-    d_model=256:
-        - Reduced from 384 to fit smaller param budget
-        - 256 / 4 heads = 64 dims per head (standard)
+    Granularity = 2 * 384 / 64 = 12 ✓
+    Shared expert size = routed expert size = 64 ✓
 
-    n_layers=12:
-        - Matches "granularity of 12" requirement
+    Architecture:
+    -------------
+    d_model=384:
+        - Chosen so d_model/6 = 64 (clean division for granularity=12)
+        - 384 / 6 heads = 64 dims per head
 
-    num_experts=64, top_k=1:
-        - 64 experts provides good sparsity
-        - top_k=1 minimizes active params
+    expert_hidden=64 (d_model/6):
+        - Gives granularity = 2 * 384 / 64 = 12
 
-    expert_hidden_size=128 (0.5 * d_model):
-        - Standard OLMo ratio
-        - Expert params: 3 * 256 * 128 * 64 = 6.3M per layer
+    shared_hidden=64:
+        - Same size as routed experts
 
-    shared_mlp_hidden=512 (2 * d_model):
-        - "1 shared expert" always active
+    num_experts=96, top_k=1:
+        - 96 experts to hit param target
 
     Parameter breakdown (vocab_size=50k):
     -------------------------------------
-    Per layer:
-      - Router: 256 * 64 = 16,384
-      - Experts: 3 * 256 * 128 * 64 = 6,291,456
-      - Shared: 3 * 256 * 512 = 393,216
-      - Attention: 4 * 256^2 = 262,144
-      - Total per layer: ~7M
+    Per layer MoE:
+      - Router: 384 * 96 = 36,864
+      - Experts: 3 * 384 * 64 * 96 = 7,077,888
+      - Shared: 3 * 384 * 64 = 73,728
+      - Total MoE: 7,188,480
 
-    Model total:
-      - 12 layers: ~84M
-      - Embeddings: 256 * 50k = 12.8M
-      - LM Head: 12.8M + norm
-      - Total: ~110M
+    Per layer attention: 4 * 384^2 = 589,824
+    Per layer total: ~7.8M
+    12 layers: ~93.4M
+    Embeddings + LM head: ~38.4M
+    Total: ~132M
 
     Active params:
-      - Router: 16,384 * 12 = 196,608
-      - Active experts (k=1): 3 * 256 * 128 * 1 * 12 = 1,179,648
-      - Shared: 393,216 * 12 = 4,718,592
-      - Attention: 262,144 * 12 = 3,145,728
-      - Embeddings + LM: 25.6M
-      - Total active: ~35M
+      - Router + shared + 1 expert: ~1.2M per layer * 12 = ~14M
+      - Attention: ~7M
+      - Embeddings + LM: ~38.4M
+      - Total active: ~50M (~38%)
     """
-    d_model = kwargs.pop("d_model", 256)
-    n_heads = kwargs.pop("n_heads", 4)  # 256/4 = 64 dims per head
+    d_model = kwargs.pop("d_model", 384)
+    n_heads = kwargs.pop("n_heads", 6)  # 384/6 = 64 dims per head
     n_layers = kwargs.pop("n_layers", 12)
-    num_experts = kwargs.pop("num_experts", 64)
+    num_experts = kwargs.pop("num_experts", 96)
     top_k = kwargs.pop("top_k", 1)
-    expert_hidden = kwargs.pop("expert_hidden", int(0.5 * d_model))  # 128
-    shared_hidden = kwargs.pop("shared_hidden", d_model * 2)  # 512
+    # Granularity = 12 → expert_hidden = d_model / 6
+    expert_hidden = kwargs.pop("expert_hidden", d_model // 6)  # 64
+    # Shared expert same size as routed experts
+    shared_hidden = kwargs.pop("shared_hidden", expert_hidden)  # 64
 
     return TransformerConfig.llama_like(
         d_model=d_model,
@@ -332,85 +334,68 @@ def smallmoe_1B_A390M(vocab_size: int, **kwargs) -> TransformerConfig:
 
 def smallmoe_1B(vocab_size: int, **kwargs) -> TransformerConfig:
     """
-    A ~1B total param MoE model with minimized active parameters.
+    ~1.02B total params MoE with granularity=12 and uniform expert sizing.
 
-    Target: 0.9-1B total, minimize active ratio
-    Achieved: ~1.05B total, ~180M active (~17% ratio) for vocab_size=50k
+    Target: 0.9-1B total
+    Achieved: ~1.02B total, ~105M active (~10%) for vocab_size=50k
 
-    Architecture choices:
-    ---------------------
+    Granularity = 2 * 768 / 128 = 12 ✓
+    Shared expert size = routed expert size = 128 ✓
+
+    Architecture:
+    -------------
     d_model=768:
-        - Same as OLMo smallmoe base
+        - Standard size, 768/6 = 128 (clean division for granularity=12)
         - 768 / 12 heads = 64 dims per head
 
-    n_layers=12:
-        - Matches "granularity of 12" requirement
+    expert_hidden=128 (d_model/6):
+        - Gives granularity = 2 * 768 / 128 = 12
+
+    shared_hidden=128:
+        - Same size as routed experts
 
     num_experts=256, top_k=1:
-        - 256 experts (8x OLMo's 32) dramatically increases total params
-        - top_k=1 minimizes active expert params
-        - Expert sparsity: 1/256 = 0.39% of expert params active
-        - This is the key to achieving low active ratio at 1B scale
-
-    expert_hidden_size=384 (0.5 * d_model):
-        - Standard OLMo ratio
-        - Expert params: 3 * 768 * 384 * 256 = 226M per layer
-
-    shared_mlp_hidden=1536 (2 * d_model):
-        - "1 shared expert" always active
-        - Provides stable training signal
+        - 256 experts to reach 1B params
+        - top_k=1 for maximum sparsity
 
     Parameter breakdown (vocab_size=50k):
     -------------------------------------
     Per layer MoE:
       - Router: 768 * 256 = 196,608
-      - Experts: 3 * 768 * 384 * 256 = 226,492,416
-      - Shared: 3 * 768 * 1536 = 3,538,944
-      - Total MoE: 230,227,968
+      - Experts: 3 * 768 * 128 * 256 = 75,497,472
+      - Shared: 3 * 768 * 128 = 294,912
+      - Total MoE: 75,988,992
 
-    Per layer attention: ~2.4M
-    Per layer total: ~232.6M
-
-    But wait - 12 layers at 232M = 2.8B, way over budget!
-    Need to reduce expert_hidden or num_experts...
-
-    Revised config for ~1B:
-    -----------------------
-    num_experts=128, expert_hidden=256
-    Per layer MoE:
-      - Router: 768 * 128 = 98,304
-      - Experts: 3 * 768 * 256 * 128 = 75,497,472
-      - Shared: 3 * 768 * 1536 = 3,538,944
-      - Total MoE: 79,134,720
-
-    12 layers MoE: 949.6M
-    12 layers attention: 28.3M
-    Embeddings + LM: 76.8M
-    Total: ~1.05B ✓
+    Per layer attention: 4 * 768^2 = 2,359,296
+    Per layer total: ~78.3M
+    12 layers: ~940M
+    Embeddings + LM head: ~76.8M
+    Total: ~1.02B
 
     Active params:
-      - Router: 98,304 * 12 = 1.18M
-      - Active experts (k=1): 3 * 768 * 256 * 1 * 12 = 7.1M
-      - Shared: 3,538,944 * 12 = 42.5M
+      - Router: 196,608 * 12 = 2.4M
+      - Active experts (k=1): 3 * 768 * 128 * 1 * 12 = 3.5M
+      - Shared: 294,912 * 12 = 3.5M
       - Attention: 2.4M * 12 = 28.3M
       - Embeddings + LM: 76.8M
-      - Norms: ~0.2M
-      - Total active: ~156M (~15%)
+      - Total active: ~105M (~10%)
 
-    Why 15% instead of 3.4%:
-    ------------------------
-    The always-active components (embeddings, attention, shared MLP, LM head)
-    alone total ~148M. For 3.4% of 1B = 34M active, which is impossible
-    since 148M > 34M. The 15% achieved here is near the practical minimum
-    for a 1B model with reasonable architecture.
+    Note: This achieves a much lower active ratio than the OLMo-style
+    smallmoe_1B_A390M (~36%) because:
+      1. More experts (256 vs 32)
+      2. Smaller expert hidden size (128 vs 576)
+      3. Smaller shared MLP (128 vs 2304)
+      4. top_k=1 vs top_k=4
     """
     d_model = kwargs.pop("d_model", 768)
     n_heads = kwargs.pop("n_heads", 12)  # 768/12 = 64 dims per head
     n_layers = kwargs.pop("n_layers", 12)
-    num_experts = kwargs.pop("num_experts", 128)  # More experts for sparsity
-    top_k = kwargs.pop("top_k", 1)  # Minimum active
-    expert_hidden = kwargs.pop("expert_hidden", int(d_model / 3))  # 256, smaller for budget
-    shared_hidden = kwargs.pop("shared_hidden", d_model * 2)  # 1536
+    num_experts = kwargs.pop("num_experts", 256)
+    top_k = kwargs.pop("top_k", 1)
+    # Granularity = 12 → expert_hidden = d_model / 6
+    expert_hidden = kwargs.pop("expert_hidden", d_model // 6)  # 128
+    # Shared expert same size as routed experts
+    shared_hidden = kwargs.pop("shared_hidden", expert_hidden)  # 128
 
     return TransformerConfig.llama_like(
         d_model=d_model,
