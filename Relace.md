@@ -78,3 +78,13 @@ torchrun --nproc-per-node=1 src/scripts/relace/saturate_1B_15B.py \
   --save-folder=/tmp/saturate_1B_15B \
   --work-dir=/tmp/dataset-cache \
   --trainer.hard_stop='{value: 2000, unit: steps}'
+
+
+run for moe1Bolmo:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_moe1Bolmo_15B.py \
+  saturate_moe1Bolmo_15B \
+  --save-folder=/tmp/saturate_moe1Bolmo_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 2000, unit: steps}'
+
