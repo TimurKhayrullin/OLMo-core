@@ -65,7 +65,7 @@ for dir in (
         DEFAULT_DATA_ROOT = dir
         break
 # DATA_ROOT = os.environ.get("OLMO_DATA_ROOT", DEFAULT_DATA_ROOT).rstrip("/")
-DATA_ROOT = "/home/OlMo-core/src/scripts/relace/datasets"
+DATA_ROOT = "/mnt/tk-moe/datasets"
 DATA_PATHS = [
     f"{DATA_ROOT}/c4-train.00000-00099.npy",
     # Uncomment for full dataset which might not be available on NFS or Weka.
@@ -161,7 +161,7 @@ def build_config(opts, overrides: List[str]) -> ExperimentConfig:
     # model_config = factory(
     #     vocab_size=tokenizer_config.padded_vocab_size(),  # a little bigger than actual vocab size to make it a multiple of 128
     # )
-    model_config = TransformerConfig.olmo2_1M(
+    model_config = TransformerConfig.olmo2_30M(
         vocab_size=tokenizer_config.padded_vocab_size()
     )
     # docs: end-model-config
@@ -182,7 +182,7 @@ def build_config(opts, overrides: List[str]) -> ExperimentConfig:
     )
 
     train_module_config = TransformerTrainModuleConfig(
-        rank_microbatch_size=32 * 1024,  # NOTE: this is specified in tokens, not instances
+        rank_microbatch_size=64 * 1024,  # NOTE: this is specified in tokens, not instances
         max_sequence_length=opts.sequence_length,
         optim=AdamWConfig(
             lr=1e-3,
