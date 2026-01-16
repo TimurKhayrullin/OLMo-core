@@ -180,7 +180,7 @@ def build_config(opts, overrides: List[str]) -> ExperimentConfig:
     )
 
     train_module_config = TransformerTrainModuleConfig(
-        rank_microbatch_size= 4 * 1024,  # NOTE: this is specified in tokens, not instances
+        rank_microbatch_size= 2 * 1024,  # NOTE: this is specified in tokens, not instances
         max_sequence_length=opts.sequence_length,
         optim=AdamWConfig(
             lr=1e-3,
