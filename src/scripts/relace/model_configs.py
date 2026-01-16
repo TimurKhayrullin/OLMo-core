@@ -817,6 +817,254 @@ def smallmoe_3BA100M(vocab_size: int, **kwargs) -> TransformerConfig:
     )
 
 
+def tinydense_500K(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    A tiny ~500K non-embedding parameter dense LLaMA-like model.
+
+    Target: ~500K non-embedding parameters
+    Achieved: 500,446 params (+0.1%)
+
+    Design rationale (based on Kaplan et al. 2020 "Scaling Laws for Neural Language Models"):
+    -----------------------------------------------------------------------------------------
+    The paper found that performance depends weakly on model shape when total
+    non-embedding parameter count N is held fixed. Models with at least 2 layers
+    and non-extreme depth-to-width ratios follow the same scaling trends.
+
+    We need: n_layers * (4*d^2 + 3*d*h + 2*d) + d ≈ 500,000
+    where h = hidden_size (FFN), approximately 8/3 * d for standard LLaMA
+
+    With d_model=102, n_layers=4, n_heads=6:
+      - head_dim = 102/6 = 17
+      - Attention: 4 * 102^2 + 2*17 = 41,650 per layer (includes qk_norm)
+      - FFN hidden = 272 (rounded 8/3 * 102 to multiple of 8)
+      - FFN: 3 * 102 * 272 = 83,232 per layer
+      - Layer norms: 2 * 102 = 204 per layer
+      - Per layer total: 125,086
+      - 4 layers: 500,344
+      - LM head norm: 102
+      - Total: 500,446 ≈ 500K ✓
+
+    Architecture:
+    -------------
+    d_model=102:
+        - Optimized for ~500K non-embed params
+        - 102 / 6 heads = 17 dims per head
+
+    n_layers=4:
+        - Reasonable depth per Kaplan et al.
+        - Models with <2 layers deviate from scaling trends
+
+    n_heads=6:
+        - Gives 17 dimensions per head
+        - Good for pattern learning
+
+    Note: Embedding params (vocab_size * d_model) are NOT included in the 500K target.
+    """
+    d_model = kwargs.pop("d_model", 102)
+    n_heads = kwargs.pop("n_heads", 6)  # 102/6 = 17 dims per head
+    n_layers = kwargs.pop("n_layers", 4)
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        hidden_size_multiplier=kwargs.pop("hidden_size_multiplier", 1.0),
+        hidden_size_multiple_of=kwargs.pop("hidden_size_multiple_of", 8),  # Allow smaller FFN
+        block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        **kwargs,
+    )
+
+
+def tinydense_100K(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    A tiny ~100K non-embedding parameter dense LLaMA-like model.
+
+    Target: ~100K non-embedding parameters
+    Achieved: 99,840 params (-0.2%)
+
+    Design rationale (based on Kaplan et al. 2020 "Scaling Laws for Neural Language Models"):
+    -----------------------------------------------------------------------------------------
+    With d_model=40, n_layers=5, n_heads=2:
+      - head_dim = 40/2 = 20
+      - Attention: 4 * 40^2 + 2*20 = 6,440 per layer (includes qk_norm)
+      - FFN hidden = 112 (rounded 8/3 * 40 to multiple of 8)
+      - FFN: 3 * 40 * 112 = 13,440 per layer
+      - Layer norms: 2 * 40 = 80 per layer
+      - Per layer total: 19,960
+      - 5 layers: 99,800
+      - LM head norm: 40
+      - Total: 99,840 ≈ 100K ✓
+
+    Architecture:
+    -------------
+    d_model=40:
+        - Optimized for ~100K non-embed params
+        - 40 / 2 heads = 20 dims per head
+
+    n_layers=5:
+        - Reasonable depth per Kaplan et al.
+        - More depth than width for small models
+
+    n_heads=2:
+        - Gives 20 dimensions per head
+        - Reasonable for small-scale attention
+
+    Note: Embedding params are NOT included in the 100K target.
+    """
+    d_model = kwargs.pop("d_model", 40)
+    n_heads = kwargs.pop("n_heads", 2)  # 40/2 = 20 dims per head
+    n_layers = kwargs.pop("n_layers", 5)
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        hidden_size_multiplier=kwargs.pop("hidden_size_multiplier", 1.0),
+        hidden_size_multiple_of=kwargs.pop("hidden_size_multiple_of", 8),  # Allow smaller FFN
+        block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        **kwargs,
+    )
+
+
+def tinydense_10K(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    A very tiny ~10K non-embedding parameter dense LLaMA-like model.
+
+    Target: ~10K non-embedding parameters
+    Achieved: 10,060 params (+0.6%)
+
+    Design rationale (based on Kaplan et al. 2020 "Scaling Laws for Neural Language Models"):
+    -----------------------------------------------------------------------------------------
+    WARNING: The paper notes that models with <2 layers deviate from scaling trends.
+    This 2-layer model is at the edge of validity for scaling law predictions.
+
+    With d_model=20, n_layers=2, n_heads=2:
+      - head_dim = 20/2 = 10
+      - Attention: 4 * 20^2 + 2*10 = 1,620 per layer (includes qk_norm)
+      - FFN hidden = 56 (rounded 8/3 * 20 to multiple of 8)
+      - FFN: 3 * 20 * 56 = 3,360 per layer
+      - Layer norms: 2 * 20 = 40 per layer
+      - Per layer total: 5,020
+      - 2 layers: 10,040
+      - LM head norm: 20
+      - Total: 10,060 ≈ 10K ✓
+
+    Architecture:
+    -------------
+    d_model=20:
+        - Very small embedding dimension
+        - 20 / 2 heads = 10 dims per head
+
+    n_layers=2:
+        - Minimum depth for compositional computation
+        - At the boundary of Kaplan et al. scaling law validity
+
+    n_heads=2:
+        - Minimum for multi-head attention
+        - 10 dims per head is reasonable for this scale
+
+    Warning: This model is EXTREMELY small and may not learn well.
+    It's primarily useful for:
+      - Sanity checking training pipelines
+      - Extrapolating scaling laws to tiny compute
+      - Fast iteration on hyperparameter searches
+    """
+    d_model = kwargs.pop("d_model", 20)
+    n_heads = kwargs.pop("n_heads", 2)  # 20/2 = 10 dims per head
+    n_layers = kwargs.pop("n_layers", 2)
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        hidden_size_multiplier=kwargs.pop("hidden_size_multiplier", 1.0),
+        hidden_size_multiple_of=kwargs.pop("hidden_size_multiple_of", 8),  # Allow smaller FFN
+        block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        **kwargs,
+    )
+
+
+def tinydense_1K(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    An extremely tiny ~1K non-embedding parameter dense LLaMA-like model.
+
+    Target: ~1K non-embedding parameters
+
+    Design rationale:
+    -----------------
+    WARNING: This model is far outside the regime studied by Kaplan et al.
+    It exists primarily for:
+      - Testing training pipeline overhead
+      - Sanity checking code paths
+      - Exploring extreme extrapolation of scaling laws
+
+    With d_model=8, n_layers=2:
+      - head_dim = 8/2 = 4 (2 heads)
+      - Attention: 4 * 8^2 = 256 per layer
+      - FFN hidden = round(8/3 * 8) = 24 (multiple of 8)
+      - FFN: 3 * 8 * 24 = 576 per layer
+      - Layer norms: ~2 * 8 = 16 per layer
+      - Per layer total: ~848
+      - 2 layers: ~1,696
+      - LM head norm: 8
+      - Total: ~1,704 ≈ 1K (within 70%)
+
+    For closer to 1K, use d_model=6, n_layers=2:
+      - Attention: 4 * 6^2 = 144 per layer
+      - FFN hidden = 16 (minimum practical)
+      - FFN: 3 * 6 * 16 = 288 per layer
+      - Layer norms: ~2 * 6 = 12 per layer
+      - Per layer total: ~444
+      - 2 layers: ~888
+      - LM head norm: 6
+      - Total: ~894 ≈ 1K ✓
+
+    Architecture:
+    -------------
+    d_model=6:
+        - Extremely small, barely functional
+        - 6 / 2 heads = 3 dims per head (!)
+
+    n_layers=2:
+        - Minimum depth
+
+    n_heads=2:
+        - Minimum heads, but only 3 dims per head
+
+    WARNING: This model is so small it may not meaningfully learn language.
+    Use only for pipeline testing and extreme scaling law extrapolation.
+    """
+    d_model = kwargs.pop("d_model", 6)
+    n_heads = kwargs.pop("n_heads", 2)  # 6/2 = 3 dims per head (!)
+    n_layers = kwargs.pop("n_layers", 2)
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        hidden_size_multiplier=kwargs.pop("hidden_size_multiplier", 1.0),
+        hidden_size_multiple_of=kwargs.pop("hidden_size_multiple_of", 8),  # Allow smaller FFN
+        block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        **kwargs,
+    )
+
+
 def smallmoe_3BA30M(vocab_size: int, **kwargs) -> TransformerConfig:
     """
     ~3B total params MoE with ultra-extreme sparsity, ~30M active (~1% ratio).
