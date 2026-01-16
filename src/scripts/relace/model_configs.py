@@ -550,3 +550,365 @@ def dense_10K(vocab_size: int, **kwargs) -> TransformerConfig:
         layer_norm_eps=1e-6,
         **kwargs,
     )
+
+
+# ==============================================================================
+# 3B MoE Model Configurations
+# ==============================================================================
+
+
+def smallmoe_3BA300M(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    ~3B total params MoE with granularity=12, ~300M active (~10% ratio).
+
+    This mimics smallmoe_1B architecture scaled up to 3B total params.
+
+    Target: ~3B total, ~300M active (10% ratio like smallmoe_1B)
+    Achieved: ~3.0B total, ~299M active (~10%) for vocab_size=50k
+
+    Granularity = 2 * 1536 / 256 = 12 ✓
+    Shared expert size = routed expert size = 256 ✓
+
+    Architecture:
+    -------------
+    d_model=1536:
+        - Scaled up from smallmoe_1B's 768 to reach 3B params
+        - 1536 / 24 heads = 64 dims per head (standard)
+        - 1536 / 6 = 256 (clean division for granularity=12)
+
+    expert_hidden=256 (d_model/6):
+        - Gives granularity = 2 * 1536 / 256 = 12
+        - Same granularity as smallmoe_1B
+
+    shared_hidden=256:
+        - Same size as routed experts (uniform sizing)
+
+    num_experts=192, top_k=1:
+        - 192 experts to reach 3B params while maintaining sparsity
+        - top_k=1 for maximum sparsity (same as smallmoe_1B)
+
+    Parameter breakdown (vocab_size=50k):
+    -------------------------------------
+    Per layer MoE:
+      - Router: 1536 * 192 = 294,912
+      - Experts: 3 * 1536 * 256 * 192 = 226,492,416
+      - Shared: 3 * 1536 * 256 = 1,179,648
+      - Total MoE: 227,966,976
+
+    Per layer attention: 4 * 1536^2 = 9,437,184
+    Per layer total: ~237.4M
+    12 layers: ~2.85B
+    Embeddings + LM head: ~153.6M
+    Total: ~3.0B
+
+    Active params:
+      - Router: 294,912 * 12 = 3.54M
+      - Active experts (k=1): 3 * 1536 * 256 * 1 * 12 = 14.16M
+      - Shared: 1,179,648 * 12 = 14.16M
+      - Attention: 9.44M * 12 = 113.25M
+      - Embeddings + LM: 153.6M
+      - Total active: ~299M (~10%)
+    """
+    d_model = kwargs.pop("d_model", 1536)
+    n_heads = kwargs.pop("n_heads", 24)  # 1536/24 = 64 dims per head
+    n_layers = kwargs.pop("n_layers", 12)
+    num_experts = kwargs.pop("num_experts", 192)
+    top_k = kwargs.pop("top_k", 1)
+    # Granularity = 12 → expert_hidden = d_model / 6
+    expert_hidden = kwargs.pop("expert_hidden", d_model // 6)  # 256
+    # Shared expert same size as routed experts
+    shared_hidden = kwargs.pop("shared_hidden", expert_hidden)  # 256
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        name=kwargs.pop("name", TransformerType.moe),
+        block_name=kwargs.pop("block_name", TransformerBlockType.moe_reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        feed_forward_moe=MoEConfig(
+            name=MoEType.default,
+            num_experts=num_experts,
+            hidden_size=expert_hidden,
+            router=MoERouterConfig(top_k=top_k),
+            shared_mlp=FeedForwardConfig(hidden_size=shared_hidden, bias=False),
+            lb_loss_weight=0.01,
+            z_loss_weight=0.001,
+        ),
+        **kwargs,
+    )
+
+
+def smallmoe_3BA1B(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    ~3B total params MoE mirroring OLMo smallmoe architecture, ~1.17B active (~37%).
+
+    This mimics smallmoe_1B_A390M architecture scaled up to 3B total params.
+
+    Target: ~3B total, ~1.17B active (37% ratio like smallmoe_1B_A390M's 36%)
+    Achieved: ~3.12B total, ~1.16B active (~37%) for vocab_size=50k
+
+    Architecture (scaled from smallmoe_1B_A390M):
+    ---------------------------------------------
+    d_model=2048:
+        - Scaled up from smallmoe_1B_A390M's 1152 to reach 3B params
+        - 2048 / 32 heads = 64 dims per head (standard)
+        - Scaling factor: 2048/1152 ≈ 1.78x
+
+    n_layers=12:
+        - Same as smallmoe_1B_A390M
+
+    num_experts=32, top_k=6:
+        - Same num_experts as smallmoe_1B_A390M
+        - top_k=6 (increased from 4) to maintain ~37% active ratio at larger scale
+
+    expert_hidden=1024 (0.5 * d_model):
+        - Same ratio as smallmoe_1B_A390M
+
+    shared_hidden=4096 (2 * d_model):
+        - Same ratio as smallmoe_1B_A390M
+
+    Parameter breakdown (vocab_size=50k):
+    -------------------------------------
+    Per layer MoE:
+      - Router: 2048 * 32 = 65,536
+      - Experts: 3 * 2048 * 1024 * 32 = 201,326,592
+      - Shared: 3 * 2048 * 4096 = 25,165,824
+      - Total MoE: 226,557,952
+
+    Per layer attention: 4 * 2048^2 = 16,777,216
+    Per layer total: ~243.3M
+    12 layers: ~2.92B
+    Embeddings + LM head: ~204.8M
+    Total: ~3.12B
+
+    Active params:
+      - Router: 65,536 * 12 = 0.79M
+      - Active experts (k=6): 3 * 2048 * 1024 * 6 * 12 = 452.98M
+      - Shared: 25,165,824 * 12 = 302M
+      - Attention: 16.78M * 12 = 201.3M
+      - Embeddings + LM: 204.8M
+      - Total active: ~1.16B (~37%)
+    """
+    d_model = kwargs.pop("d_model", 2048)
+    n_heads = kwargs.pop("n_heads", 32)  # 2048/32 = 64 dims per head
+    n_layers = kwargs.pop("n_layers", 12)
+    # Mirror OLMo smallmoe style for expert config
+    num_experts = kwargs.pop("num_experts", 32)
+    top_k = kwargs.pop("top_k", 6)  # Increased from 4 to maintain active ratio at scale
+    expert_hidden = kwargs.pop("expert_hidden", int(0.5 * d_model))  # 1024
+    shared_hidden = kwargs.pop("shared_hidden", d_model * 2)  # 4096
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        name=kwargs.pop("name", TransformerType.moe),
+        block_name=kwargs.pop("block_name", TransformerBlockType.moe_reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        feed_forward_moe=MoEConfig(
+            name=MoEType.default,
+            num_experts=num_experts,
+            hidden_size=expert_hidden,
+            router=MoERouterConfig(top_k=top_k),
+            shared_mlp=FeedForwardConfig(hidden_size=shared_hidden, bias=False),
+            lb_loss_weight=0.01,
+            z_loss_weight=0.001,
+        ),
+        **kwargs,
+    )
+
+
+def smallmoe_3BA100M(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    ~3B total params MoE with extreme sparsity, ~100M active (~3.4% ratio).
+
+    This mimics smallmoe_1B architecture but pushes sparsity to the extreme.
+
+    Target: ~3B total, ~100M active (3.4% ratio)
+    Achieved: ~3.05B total, ~103M active (~3.4%) for vocab_size=50k
+
+    Granularity = 2 * 672 / 112 = 12 ✓
+    Shared expert size = routed expert size = 112 ✓
+
+    Architecture:
+    -------------
+    d_model=672:
+        - Smaller than smallmoe_1B's 768 to reduce always-active params
+        - 672 / 12 heads = 56 dims per head
+        - 672 / 6 = 112 (clean division for granularity=12)
+
+    expert_hidden=112 (d_model/6):
+        - Gives granularity = 2 * 672 / 112 = 12
+        - Same granularity pattern as smallmoe_1B
+
+    shared_hidden=112:
+        - Same size as routed experts (uniform sizing)
+
+    num_experts=1088, top_k=1:
+        - Many more experts (1088 vs smallmoe_1B's 256) for extreme sparsity
+        - top_k=1 for maximum sparsity
+        - This is what enables ~3% active ratio
+
+    Parameter breakdown (vocab_size=50k):
+    -------------------------------------
+    Per layer MoE:
+      - Router: 672 * 1088 = 731,136
+      - Experts: 3 * 672 * 112 * 1088 = 245,661,696
+      - Shared: 3 * 672 * 112 = 225,792
+      - Total MoE: 246,618,624
+
+    Per layer attention: 4 * 672^2 = 1,806,336
+    Per layer total: ~248.4M
+    12 layers: ~2.98B
+    Embeddings + LM head: ~67.2M
+    Total: ~3.05B
+
+    Active params:
+      - Embeddings + LM: 67.2M
+      - Attention: 1.81M * 12 = 21.7M
+      - Router: 0.73M * 12 = 8.77M
+      - Shared: 0.23M * 12 = 2.71M
+      - Active expert (k=1): 0.23M * 12 = 2.71M
+      - Total active: ~103M (~3.4%)
+
+    Note: This achieves extremely low active ratio by:
+      1. Many more experts (1088 vs typical 32-256)
+      2. Smaller d_model (less attention/embedding overhead)
+      3. Tiny expert and shared MLP sizes
+      4. top_k=1 for maximum routing sparsity
+    """
+    d_model = kwargs.pop("d_model", 672)
+    n_heads = kwargs.pop("n_heads", 12)  # 672/12 = 56 dims per head
+    n_layers = kwargs.pop("n_layers", 12)
+    num_experts = kwargs.pop("num_experts", 1088)
+    top_k = kwargs.pop("top_k", 1)
+    # Granularity = 12 → expert_hidden = d_model / 6
+    expert_hidden = kwargs.pop("expert_hidden", d_model // 6)  # 112
+    # Shared expert same size as routed experts
+    shared_hidden = kwargs.pop("shared_hidden", expert_hidden)  # 112
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        name=kwargs.pop("name", TransformerType.moe),
+        block_name=kwargs.pop("block_name", TransformerBlockType.moe_reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        feed_forward_moe=MoEConfig(
+            name=MoEType.default,
+            num_experts=num_experts,
+            hidden_size=expert_hidden,
+            router=MoERouterConfig(top_k=top_k),
+            shared_mlp=FeedForwardConfig(hidden_size=shared_hidden, bias=False),
+            lb_loss_weight=0.01,
+            z_loss_weight=0.001,
+        ),
+        **kwargs,
+    )
+
+
+def smallmoe_3BA30M(vocab_size: int, **kwargs) -> TransformerConfig:
+    """
+    ~3B total params MoE with ultra-extreme sparsity, ~30M active (~1% ratio).
+
+    Target: ~3B total, ~30M active (1% ratio)
+    Achieved: ~3.1B total, ~29M active (~0.94%) for vocab_size=50k
+
+    IMPORTANT: This config deviates from the granularity=12 pattern used in other
+    smallmoe configs. Achieving ~1% active ratio requires a different architecture:
+    - Very small d_model (to minimize embedding/attention overhead)
+    - Fewer but LARGER experts (to pack params without inflating router)
+    - Tiny shared MLP
+
+    The granularity=12 pattern would require thousands of tiny experts, making
+    the router (d_model * num_experts * n_layers) exceed the active param budget.
+
+    Architecture:
+    -------------
+    d_model=192:
+        - Very small to minimize always-active attention/embedding params
+        - 192 / 3 heads = 64 dims per head (standard)
+        - Embeddings: 2 * 192 * 50k = 19.2M (already 64% of active budget!)
+
+    expert_hidden=768 (4 * d_model):
+        - INVERTED from granularity=12 pattern (which would use d_model/6=32)
+        - Larger experts = fewer needed for 3B total = smaller router
+        - This is key to achieving 1% active ratio
+
+    shared_hidden=192:
+        - Minimal shared MLP (same as d_model)
+        - Keeps shared contribution small
+
+    num_experts=580, top_k=1:
+        - Moderate number of large experts
+        - top_k=1 for maximum sparsity
+
+    Parameter breakdown (vocab_size=50k):
+    -------------------------------------
+    Per layer:
+      - Attention: 4 * 192^2 = 147,456
+      - Router: 192 * 580 = 111,360
+      - Experts: 3 * 192 * 768 * 580 = 256,573,440
+      - Shared: 3 * 192 * 192 = 110,592
+      - Total per layer: ~256.9M
+
+    12 layers: ~3.08B
+    Embeddings + LM head: ~19.2M
+    Total: ~3.1B
+
+    Active params:
+      - Embeddings + LM: 19.2M
+      - Attention: 0.15M * 12 = 1.77M
+      - Router: 0.11M * 12 = 1.34M
+      - Shared: 0.11M * 12 = 1.33M
+      - Active expert (k=1): 3 * 192 * 768 * 1 * 12 = 5.31M
+      - Total active: ~29M (~0.94%)
+
+    Trade-offs vs other smallmoe configs:
+    -------------------------------------
+    - Much smaller d_model (192 vs 672-2048) limits model capacity per token
+    - Larger experts (768 vs 32-256 hidden) may affect expert specialization
+    - Very high total/active ratio (100:1) is at the extreme of MoE design
+    - May require different training dynamics (higher LR, different warmup)
+    """
+    d_model = kwargs.pop("d_model", 192)
+    n_heads = kwargs.pop("n_heads", 3)  # 192/3 = 64 dims per head
+    n_layers = kwargs.pop("n_layers", 12)
+    num_experts = kwargs.pop("num_experts", 580)
+    top_k = kwargs.pop("top_k", 1)
+    # INVERTED from granularity=12: use large experts to minimize router overhead
+    expert_hidden = kwargs.pop("expert_hidden", d_model * 4)  # 768
+    # Minimal shared MLP
+    shared_hidden = kwargs.pop("shared_hidden", d_model)  # 192
+
+    return TransformerConfig.llama_like(
+        d_model=d_model,
+        vocab_size=vocab_size,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        name=kwargs.pop("name", TransformerType.moe),
+        block_name=kwargs.pop("block_name", TransformerBlockType.moe_reordered_norm),
+        qk_norm=kwargs.pop("qk_norm", True),
+        rope_theta=kwargs.pop("rope_theta", 500_000),
+        layer_norm_eps=1e-6,
+        feed_forward_moe=MoEConfig(
+            name=MoEType.default,
+            num_experts=num_experts,
+            hidden_size=expert_hidden,
+            router=MoERouterConfig(top_k=top_k),
+            shared_mlp=FeedForwardConfig(hidden_size=shared_hidden, bias=False),
+            lb_loss_weight=0.01,
+            z_loss_weight=0.001,
+        ),
+        **kwargs,
+    )
