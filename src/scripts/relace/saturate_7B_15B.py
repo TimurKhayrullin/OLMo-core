@@ -288,7 +288,7 @@ def parser_args():
     parser.add_argument(
         "--sequence-length",
         type=int,
-        default=2048,
+        default=1024,
         help="""The sequence length to train and eval on.""",
     )
     parser.add_argument(
