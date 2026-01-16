@@ -161,7 +161,7 @@ def build_config(opts, overrides: List[str]) -> ExperimentConfig:
     # model_config = factory(
     #     vocab_size=tokenizer_config.padded_vocab_size(),  # a little bigger than actual vocab size to make it a multiple of 128
     # )
-    model_config = TransformerConfig.llama2_135M(
+    model_config = llama2_135M(
         vocab_size=tokenizer_config.padded_vocab_size()
     )
     # docs: end-model-config
