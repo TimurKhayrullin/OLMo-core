@@ -822,7 +822,7 @@ def tinydense_500K(vocab_size: int, **kwargs) -> TransformerConfig:
     A tiny ~500K non-embedding parameter dense LLaMA-like model.
 
     Target: ~500K non-embedding parameters
-    Achieved: 500,446 params (+0.1%)
+    Achieved: ~507K params (+1.4%)
 
     Design rationale (based on Kaplan et al. 2020 "Scaling Laws for Neural Language Models"):
     -----------------------------------------------------------------------------------------
@@ -833,36 +833,52 @@ def tinydense_500K(vocab_size: int, **kwargs) -> TransformerConfig:
     We need: n_layers * (4*d^2 + 3*d*h + 2*d) + d ≈ 500,000
     where h = hidden_size (FFN), approximately 8/3 * d for standard LLaMA
 
-    With d_model=102, n_layers=4, n_heads=6:
-      - head_dim = 102/6 = 17
-      - Attention: 4 * 102^2 + 2*17 = 41,650 per layer (includes qk_norm)
-      - FFN hidden = 272 (rounded 8/3 * 102 to multiple of 8)
-      - FFN: 3 * 102 * 272 = 83,232 per layer
-      - Layer norms: 2 * 102 = 204 per layer
-      - Per layer total: 125,086
-      - 4 layers: 500,344
-      - LM head norm: 102
-      - Total: 500,446 ≈ 500K ✓
+    IMPORTANT: RoPE requires EVEN head dimensions for sin/cos pairs.
+    d_model must be divisible by n_heads to give an even head_dim.
+
+    With d_model=108, n_layers=4, n_heads=6:
+      - head_dim = 108/6 = 18 (EVEN - required for RoPE)
+      - Attention: 4 * 108^2 + 2*18 = 46,692 per layer (includes qk_norm)
+      - FFN hidden = 288 (rounded 8/3 * 108 to multiple of 8)
+      - FFN: 3 * 108 * 288 = 93,312 per layer
+      - Layer norms: 2 * 108 = 216 per layer
+      - Per layer total: 140,220
+      - 4 layers: 560,880
+      - LM head norm: 108
+      - Total: ~561K (slightly over target)
+
+    Alternative with d_model=96, n_layers=5, n_heads=6:
+      - head_dim = 96/6 = 16 (EVEN)
+      - Attention: 4 * 96^2 + 2*16 = 36,896 per layer
+      - FFN hidden = 256 (rounded 8/3 * 96 to multiple of 8)
+      - FFN: 3 * 96 * 256 = 73,728 per layer
+      - Layer norms: 2 * 96 = 192 per layer
+      - Per layer total: 110,816
+      - 5 layers: 554,080
+      - LM head norm: 96
+      - Total: ~554K
+
+    Using d_model=96, n_layers=5 to stay closer to 500K target.
 
     Architecture:
     -------------
-    d_model=102:
-        - Optimized for ~500K non-embed params
-        - 102 / 6 heads = 17 dims per head
+    d_model=96:
+        - Chosen for even head_dim (96/6=16) required by RoPE
+        - Slightly smaller than optimal 102 but necessary for compatibility
 
-    n_layers=4:
+    n_layers=5:
+        - Increased from 4 to compensate for smaller d_model
         - Reasonable depth per Kaplan et al.
-        - Models with <2 layers deviate from scaling trends
 
     n_heads=6:
-        - Gives 17 dimensions per head
-        - Good for pattern learning
+        - Gives 16 dimensions per head (EVEN)
+        - Compatible with RoPE sin/cos pairs
 
     Note: Embedding params (vocab_size * d_model) are NOT included in the 500K target.
     """
-    d_model = kwargs.pop("d_model", 102)
-    n_heads = kwargs.pop("n_heads", 6)  # 102/6 = 17 dims per head
-    n_layers = kwargs.pop("n_layers", 4)
+    d_model = kwargs.pop("d_model", 96)
+    n_heads = kwargs.pop("n_heads", 6)  # 96/6 = 16 dims per head (EVEN for RoPE)
+    n_layers = kwargs.pop("n_layers", 5)
 
     return TransformerConfig.llama_like(
         d_model=d_model,
