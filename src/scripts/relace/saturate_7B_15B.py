@@ -180,7 +180,7 @@ def build_config(opts, overrides: List[str]) -> ExperimentConfig:
     )
 
     train_module_config = TransformerTrainModuleConfig(
-        rank_microbatch_size= 1 * 1024,  # NOTE: this is specified in tokens, not instances
+        rank_microbatch_size= 1 * 512,  # NOTE: this is specified in tokens, not instances
         max_sequence_length=opts.sequence_length,
         optim=AdamWConfig(
             lr=1e-3,
@@ -288,7 +288,7 @@ def parser_args():
     parser.add_argument(
         "--sequence-length",
         type=int,
-        default=1024,
+        default=512,
         help="""The sequence length to train and eval on.""",
     )
     parser.add_argument(
