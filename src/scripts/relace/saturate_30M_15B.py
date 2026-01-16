@@ -65,7 +65,7 @@ for dir in (
         DEFAULT_DATA_ROOT = dir
         break
 # DATA_ROOT = os.environ.get("OLMO_DATA_ROOT", DEFAULT_DATA_ROOT).rstrip("/")
-DATA_ROOT = "/mnt/tk-moe/datasets"
+DATA_ROOT = "/home/OLMo-core/src/scripts/relace/datasets"
 DATA_PATHS = [
     f"{DATA_ROOT}/c4-train.00000-00099.npy",
     # Uncomment for full dataset which might not be available on NFS or Weka.
