@@ -1,0 +1,81 @@
+resources:
+  image_id: docker:ghcr.io/allenai/olmo-core:tch270cu126-v2.1.0
+  cloud: nebius
+  accelerators: H100:1
+  region: eu-north1
+  disk_size: 128GB
+  autostop: 30m
+
+workdir: .
+
+# envs:
+#   HF_TOKEN: null
+#   WANDB_API_KEY: null
+#   WANDB_PROJECT: pretraining
+#   GITHUB_TOKEN: null
+#   MODAL_TOKEN_ID: null
+#   MODAL_TOKEN_SECRET: null
+#   # Backblaze B2 Configuration
+#   AWS_ACCESS_KEY_ID: null
+#   AWS_SECRET_ACCESS_KEY: null
+#   AWS_ENDPOINT_URL: [PRIVATE]
+
+
+
+num_nodes: 1
+
+setup: |
+  # 1) Set WANDB API key
+  export WANDB_API_KEY="[PRIVATE]"
+
+  # Persist environment variables for SSH sessions
+  echo "WANDB_API_KEY=$WANDB_API_KEY" >> /etc/environment
+
+  # 2) Install pip packages
+  pip install bettermap
+  pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+  pip install cached-path==1.7.2
+
+  # 3) Install GitHub CLI
+  (type -p wget >/dev/null || (apt update && apt-get install wget -y)) \
+  && mkdir -p -m 755 /etc/apt/keyrings \
+  && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  && cat $out | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+  && apt update \
+  && apt install gh -y
+
+  # 4) Authenticate gh (use a personal access token)
+  export GH_TOKEN="[PRIVATE]"
+  echo "GH_TOKEN=$GH_TOKEN" >> /etc/environment
+
+  # 5) Clone repo
+  cd /home
+  sudo rm -rf OLMo-core
+  gh repo clone TimurKhayrullin/OLMo-core
+
+  cd OLMo-core
+  pip install --no-deps -e .
+
+  mkdir /home/OLMo-core/src/scripts/relace/datasets
+
+
+run: |
+  cd /home/OLMo-core
+  
+  # 8) Your wget commands
+  # wget -O /home/OLMo-core/src/scripts/relace/datasets/c4-validation.00000-00008.npy http://olmo-data.org/examples/c4-en/gpt2/c4-validation.00000-00008.npy 
+  # wget -O /home/OLMo-core/src/scripts/relace/datasets/c4-train.00000-00099.npy http://olmo-data.org/examples/c4-en/gpt2/c4-train.00000-00099.npy
+
+  git pull
+
+  pip install --no-deps -e .
+
+  export WANDB_API_KEY="[PRIVATE]"
+
+  torchrun --nproc-per-node=1 src/scripts/relace/saturate_10K_15B.py \
+    saturate_100K_15B \
+    --save-folder=/mnt/tk-moe/saturate_10K_15B \
+    --work-dir=/tmp/dataset-cache \
+    --trainer.hard_stop='{value: 12000, unit: steps}'

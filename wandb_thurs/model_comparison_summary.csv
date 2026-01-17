@@ -1,0 +1,8 @@
+Model,Type,Total Params,Active Params,Active %,Final Loss,Tokens (B),PF-days
+1M Dense,Dense,2M,2M,100%,5.888,3.15,0.000
+60M Dense,Dense,58M,58M,100%,3.719,3.15,0.008
+MoE-1B Sparse,MoE,1017M,106M,10%,3.426,3.15,0.015
+MoE-1B OLMo,MoE,1040M,370M,36%,3.180,3.15,0.068
+135M Dense,Dense,162M,162M,100%,3.436,3.15,0.027
+1B Dense,Dense,1131M,1131M,100%,3.500,1.67,0.107
+271M Dense,Dense,279M,279M,100%,3.226,3.87,0.061

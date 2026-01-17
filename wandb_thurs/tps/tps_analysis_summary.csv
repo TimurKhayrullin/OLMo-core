@@ -1,0 +1,5 @@
+Model,Type,Total Params,Active Params,Active %,Mean TPS,TPS/Active M
+135M Dense,Dense,162M,162M,100%,"187,275",1154
+271M Dense,Dense,279M,279M,100%,"95,221",341
+MoE-1B Sparse,MoE,1017M,106M,10%,"93,014",878
+MoE-1B OLMo,MoE,1040M,370M,36%,"50,764",137

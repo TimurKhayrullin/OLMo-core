@@ -129,3 +129,10 @@ torchrun --nproc-per-node=1 src/scripts/relace/saturate_10K_15B.py \
   --work-dir=/tmp/dataset-cache \
   --trainer.hard_stop='{value: 3000, unit: steps}'
 
+run for moe1sparse:
+
+torchrun --nproc-per-node=1 src/scripts/relace/saturate_moe1sparse_15B.py \
+  saturate_moe1sparse_15B \
+  --save-folder=/tmp/saturate_moe1sparse_15B \
+  --work-dir=/tmp/dataset-cache \
+  --trainer.hard_stop='{value: 4000, unit: steps}'
